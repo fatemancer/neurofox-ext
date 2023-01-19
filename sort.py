@@ -11,7 +11,7 @@ from exif import Image
 
 def hash(data):
     m = hashlib.sha256()
-    fields = ["Size","HRFix","Steps","Scale","Hypernetwork","Sampler","Model","Text","Negative"]
+    fields = ["Size", "HRFix", "Steps", "Scale", "Hypernetwork", "Sampler", "Model", "Text", "Negative"]
     for d in fields:
         m.update(data[d].encode('utf-8'))
     return m.hexdigest()
@@ -38,28 +38,47 @@ def parse_seed(file):
         input()
         raise e
 
+
+def format_date(d):
+    result = ""
+    for index, elem in enumerate(list(d)):
+        # year
+        if index == 0:
+            result += str(elem) + "-"
+        else:
+            result += '%02d' % elem + "-"
+    return result
+
+
 def run():
     parser = argparse.ArgumentParser()
     parser.add_argument("zip", help="zip file with results")
     args = parser.parse_args()
+    file_creation_timestamps = dict()
     with tempfile.TemporaryDirectory(prefix="neurofox-ext-") as tmp:
         with zipfile.ZipFile(args.zip, 'r') as zip_ref:
-            zip_ref.extractall(tmp)
+            for file in zip_ref.infolist():
+                zip_ref.extract(file, tmp)
+                name = file.filename
+                # txt files are created at other time
+                if name.endswith(".jpg"):
+                    file_creation_timestamps[name] = file.date_time
             files = os.listdir(tmp)
         metadata = defaultdict(list)
         for file in files:
             if file.endswith(".txt"):
                 key, value = parse_seed(os.path.join(tmp, file))
                 metadata[key].append(value)
-        print(metadata)
         with open("data.json", "w") as j:
             json.dump(metadata, j)
         if not os.path.exists("data"):
             os.mkdir("data")
         for key in metadata:
             v_list = metadata[key]
-            if not os.path.exists(os.path.join("data", key)):
-                os.mkdir(os.path.join("data", key))
+            ts_prefix = format_date(min([file_creation_timestamps[d["jpg_name"]] for d in v_list]))
+            os_specific_folder_name = os.path.join("data", ts_prefix + "-" + key)
+            if not os.path.exists(os_specific_folder_name):
+                os.mkdir(os_specific_folder_name)
             for value in v_list:
                 file = value["jpg"]
                 with open(file, "rb") as source:
@@ -71,9 +90,9 @@ def run():
                     img.set("ImageDescription", value["Text"])
                     # so we put everything to the Model tag!
                     img.set("Model", json.dumps(value))
-                    with open(os.path.join("data", key, value["jpg_name"]), 'wb') as target:
+                    with open(os.path.join(os_specific_folder_name, value["jpg_name"]), 'wb') as target:
                         target.write(img.get_file())
-                with open(os.path.join("data", key, "data.json"), "w") as j:
+                with open(os.path.join(os_specific_folder_name, "data.json"), "w") as j:
                     json.dump(v_list[0], j)
 
 
